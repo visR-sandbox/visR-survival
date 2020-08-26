@@ -1,0 +1,204 @@
+---
+title: "Recreate visR example"
+output: github_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(survival)
+library(tidyverse)
+library(here)
+library(dplyr)
+library(tidyr)
+library(survival)
+library(ggplot2)
+library(broom)
+library(purrr)
+library(gtable)
+library(cowplot)
+library(plotly)
+library(survminer)
+
+source(here("R","vr_KM_est.R"))
+source(here("R","/vr_plot.R"))
+source(here("R","tidyme.R"))
+source(here("R","add_CI.R"))
+source(here("R","add_CNSR.R"))
+source(here("R","add_COX_HR.R"))
+source(here("R","add_risktable.R"))
+source(here("R","utilities.R"))
+source(here("R","get_quantile.R"))
+source(here("R","vr_plotly.R"))
+```
+
+
+Global constants. 
+
+```{r}
+# Constants
+DATASET <-
+  paste0("NCCTG Lung Cancer Dataset (from survival package ",
+         packageVersion("survival"),
+         ")")
+
+# Globql formatting options
+options(digits = 3)
+
+# Global ggplot settings
+theme_set(theme_classic())
+
+# Global table settings
+options(DT.options = list(
+  pageLength = 10,
+  language = list(search = 'Filter:'),
+  scrollX = TRUE
+))
+```
+
+
+Load the data set.
+
+```{r}
+### Data set
+data(lung)
+```
+
+
+Prepare the data set. Also convert to CDISC. 
+
+Important variavles:
+
+* status:	censoring status 1=censored, 2=dead
+* time:	Survival time in days
+
+For, CDISC convert those variables as follows:
+
+* AVAL - Analysis value (time to event [days])
+* CNSR - Censoring (0 = Event, 1 = censored)
+
+
+**Here, the only additional step from the original example is the renaming of time to AVAL.**
+
+```{r}
+
+lung_cohort <- lung %>%
+  rename(ECOG = ph.ecog,
+         Karnofsky = ph.karno,
+         institution = inst) %>%
+  mutate(
+    patid = paste0("Pat", row_number()),
+    institution = factor(institution),
+    sex = factor(if_else(sex == 1, "male", "female")),
+    ECOG = factor(
+      case_when(
+        ECOG == 0 ~ "0 asymptomatic",
+        ECOG == 1 ~ "1 ambulatory",
+        ECOG == 2 ~ "2 in bed less than 50% of day",
+        ECOG == 3 ~ "3 in bed more than 50% of day",
+        ECOG == 4 ~ "4 bedbound",
+        ECOG == 5 ~ "5 dead"
+      )
+    ),
+    dx_age_group = factor(
+      case_when(
+        age < 30 ~ "< 30y",
+        age >= 30 &
+          age <= 50 ~ "30-50y",
+        age > 50 &
+          age <= 70 ~ "51-70y",
+        age > 70 ~ "> 70y"
+      ),
+      levels = c("< 30y", "30-50y", "51-70y", "> 70y")
+    ),
+    AVAL = time, 
+    CNSR = case_when(status == 1 ~ 1,
+                     status == 2 ~ 0)      #replacing status = if_else(status == 1, 0, 1)
+  ) %>%
+  select(-meal.cal,-pat.karno)
+```
+
+Check the variables are transformed ok. 
+
+```{r}
+lung_cohort %>% glimpse()
+```
+
+
+
+Current visR api:
+
+```{r, eval=FALSE}
+surv_eq <- "survival::Surv(time, status) ~ sex"
+vr_kaplan_meier(
+  lung_cohort,
+  equation = surv_eq,
+  data_source = DATASET,
+  time_unit = "days",
+  title = "Comparison of survival in male and female lung cancer patients"
+)
+```
+
+
+
+
+
+
+Fit model and store object 
+
+```{r}
+vr_km_obj <- 
+  vr_KM_est(data = lung_cohort, strata = "sex") 
+```
+
+
+
+## plot with risk table 
+
+```{r}
+vr_km_obj %>%
+  vr_plot(legend.position = "top") %>%
+  add_CI() %>%
+  add_CNSR(shape = 3, size = 2) %>%
+  add_risktable(min_at_risk = 1)
+```
+
+
+TODO: 
+
+* **CHECK** why there is a difference in the risk numbers compared to the visR example. 
+
+Original data and using Survival to perform cross check test. 
+
+```{r}
+km <- survfit(Surv(time, status == 2) ~ sex, data = lung) 
+
+summary(km, times = c(0, 100, 200, 300, 400, 500, 600, 700, 800, 900))
+
+```
+
+```{r}
+ggsurvplot(
+   km,                     # survfit object with calculated statistics.
+   data = lung,  # data used to fit survival curves. 
+   risk.table = TRUE,         # show risk table.
+   break.time.by = 100       # break X axis in time intervals by 500.
+   
+)
+```
+
+Crude way to summarise the KM estimates.
+
+```{r}
+vr_km_obj 
+```
+
+How to get p-values and Cox PH HR estimates using Survial
+
+```{r}
+survdiff(Surv(time, status == 2) ~ sex, data = lung, rho = 0)
+coxph(Surv(time, status == 2) ~ sex , data = lung)
+```
+
+
