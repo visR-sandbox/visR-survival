@@ -31,7 +31,7 @@ library(plotly)
 library(survminer)
 
 source(here("R","vr_KM_est.R"))
-source(here("R","/vr_plot.R"))
+source(here("R","vr_plot.R"))
 source(here("R","tidyme.R"))
 source(here("R","add_CI.R"))
 source(here("R","add_CNSR.R"))
@@ -165,7 +165,7 @@ vr_km_obj <-
 
 ## plot with risk table 
 
-```{r}
+```{r, fig.width=6, fig.height=6}
 vr_km_obj %>%
   vr_plot(legend.position = "top") %>%
   add_CI() %>%
@@ -187,7 +187,7 @@ summary(km, times = c(0, 100, 200, 300, 400, 500, 600, 700, 800, 900))
 
 ```
 
-```{r}
+```{r, fig.width=6, fig.height=6}
 ggsurvplot(
    km,                     # survfit object with calculated statistics.
    data = lung,  # data used to fit survival curves. 
@@ -224,7 +224,8 @@ hr %>%
 sdiff %>% glance()
 ```
 visR function. 
-```{r, eval=FALSE}
+```{r}
+
 vr_kaplan_meier_summary <- function(data, equation) {
 
 # Run survival function
@@ -252,4 +253,57 @@ return(list(median_survival_time_summary, equality_of_strata))
 
 }
 ```
+
+
+```{r}
+surv_eq <- "survival::Surv(time, status) ~ sex"
+surv_eq <- "survival::Surv(AVAL, CNSR) ~ sex"
+
+
+km_summ <- vr_kaplan_meier_summary(lung_cohort, surv_eq)
+
+km_summ
+
+```
+
+
+# hack a function to annotate the km summary 
+
+```{r}
+add_km_summary <- function(gg, ...){
+  
+  label1 <-
+    paste0(
+      km_summ[[1]]$strata,
+      " median surv time = ",
+      km_summ[[1]]$`median survival time`,
+      " (",
+      km_summ[[1]]$`0.95LCL`,
+      ", ",
+      km_summ[[1]]$`0.95UCL`,
+      ")"
+    )
+  
+  label1[1]
+  
+  gg <-
+    gg + annotate("text",
+                  x = 0.6,
+                  y = 0.8,
+                  label = label1[1])
+  return(gg)
+  
+}
+```
+
+
+```{r, fig.width=6, fig.height=6}
+vr_km_obj %>%
+  vr_plot(legend.position = "top") %>%
+  add_CI() %>%
+  add_CNSR(shape = 3, size = 2) %>%
+  add_risktable(min_at_risk = 1) %>%
+  add_km_summary()
+```
+
 
